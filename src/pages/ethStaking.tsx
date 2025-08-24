@@ -37,7 +37,7 @@ export default function Home() {
         </div>
         
         {/* 主要内容区域 */}
-        <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+        <div className="relative  flex items-center justify-center min-h-screen p-4">
           <div className="w-full max-w-2xl">
             {/* 玻璃态卡片 */}
             <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl shadow-2xl p-8 space-y-6 relative overflow-hidden">
@@ -46,7 +46,7 @@ export default function Home() {
               <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-cyan-500/10"></div>
               
               {/* 内容 */}
-              <div className="relative z-10">
+              <div className="relative ">
                 {activeTab === Tab.Stake ? (
                   <Stake />
                 ) : (
