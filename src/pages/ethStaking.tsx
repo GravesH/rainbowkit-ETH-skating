@@ -3,7 +3,12 @@ import { useState } from "react";
 import Header from "../components/header";
 import Stake from "../components/stake";
 import WithDraw from "../components/withDraw";
+import { useAccount, useContractWrite,useContractRead } from "wagmi";
+import MyTokenAbi from "../abi/MyToken.json";
+import StakingAbi from "../abi/Staking.json";
+import StakingTokenAbi from "../abi/StakingToken.json";
 
+const contractAddress = "0x1EA3096253b4B4D72C3F3b7155bfcEA489e6d0a4";
 enum Tab {
   Stake = 0,
   WithDraw = 1,
