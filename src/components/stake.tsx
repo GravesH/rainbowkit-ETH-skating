@@ -13,25 +13,41 @@ import {
   useAccount,
 } from "wagmi";
 const contractAddress = "0xeee6b302D3F831DAA541e61ba1fDd87146fAbae1";
-// 支持的代币列表
-const SUPPORTED_TOKENS = [
-  {
-    id: "eth",
-    name: "ETH",
-    address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-    logo: "https://cryptologos.cc/logos/ethereum-eth-logo.svg",
-    decimals: 18,
-    isNative: true, // ETH是原生币
-  },
+
+// 开发模式：是否允许自定义代币
+const DEVELOPMENT_MODE = true; // 生产环境设为 false
+
+// 主流代币列表（企业级）
+const MAINSTREAM_TOKENS = [
   {
     id: "usdt",
     name: "USDT",
     address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    logo: "https://cryptologos.cc/logos/tether-usdt-logo.svg",
     decimals: 6,
-    isNative: false,
+  },
+  {
+    id: "usdc",
+    name: "USDC",
+    address: "0xA0b86a33E6441d7C73c5B99e6b1b4b5e0A0A0A0A", // 需要替换为实际地址
+    decimals: 6,
   },
 ];
+
+// 测试代币列表（开发用）
+const TEST_TOKENS = [
+  {
+    id: "mytoken",
+    name: "MyToken",
+    address: "0x2422E7681efc92F23e56D0d465ef6e86D3D0210D", // 替换为你的代币地址
+    logo: "https://via.placeholder.com/32x32/4F46E5/ffffff?text=MT",
+    decimals: 18,
+  },
+];
+
+// 根据模式选择支持的代币
+const SUPPORTED_TOKENS = DEVELOPMENT_MODE
+  ? [...MAINSTREAM_TOKENS, ...TEST_TOKENS]
+  : MAINSTREAM_TOKENS;
 function Stake() {
   const [stakeAmount, setStakeAmount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -42,6 +58,11 @@ function Stake() {
   const { connect } = useConnect();
   //选择代币
   const [selectedToken, setSelectedToken] = useState(SUPPORTED_TOKENS[0]);
+  // 自定义代币相关状态
+  const [showCustomToken, setShowCustomToken] = useState(false);
+  const [customTokenAddress, setCustomTokenAddress] = useState("");
+  const [customTokenName, setCustomTokenName] = useState("");
+  const [customTokenDecimals, setCustomTokenDecimals] = useState(18);
   useEffect(() => {
     console.log(res);
     if (res.isSuccess) {
@@ -94,12 +115,14 @@ function Stake() {
       <div className="text-center space-y-3">
         <div className="relative">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
-            ETH 质押
+            代币质押
           </h1>
           <div className="absolute -top-2 -left-2 w-6 h-6 bg-blue-500 rounded-full animate-pulse"></div>
           <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-purple-500 rounded-full animate-ping"></div>
         </div>
-        <p className="text-gray-300 text-lg">将您的 ETH 质押到去中心化网络中</p>
+        <p className="text-gray-300 text-lg">
+          将您的代币质押到去中心化网络中获得收益
+        </p>
       </div>
 
       {/* 统计卡片 */}
@@ -120,9 +143,140 @@ function Stake() {
 
       {/* 质押表单 */}
       <div className="space-y-6">
+        {/* 代币选择器 */}
         <div className="relative">
           <label className="block text-sm font-medium text-gray-300 mb-3">
-            质押数量 (ETH)
+            选择质押代币
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {SUPPORTED_TOKENS.map((token) => (
+              <div
+                key={token.id}
+                onClick={() => setSelectedToken(token)}
+                className={`p-4 rounded-xl border cursor-pointer transition-all duration-300 ${
+                  selectedToken.id === token.id
+                    ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-blue-400/50"
+                    : "bg-white/5 border-white/10 hover:border-white/20"
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <div>
+                    <div className="font-semibold text-white">{token.name}</div>
+                    <div className="text-xs text-gray-400">
+                      {token.decimals} decimals
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* 自定义代币选项 */}
+            {DEVELOPMENT_MODE && (
+              <div
+                onClick={() => setShowCustomToken(!showCustomToken)}
+                className="p-4 rounded-xl border cursor-pointer transition-all duration-300 bg-gradient-to-r from-gray-500/10 to-gray-600/10 border-gray-400/30 hover:border-gray-300/50"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">+</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-white">自定义代币</div>
+                    <div className="text-xs text-gray-400">
+                      输入代币合约地址
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 自定义代币输入框 */}
+          {showCustomToken && DEVELOPMENT_MODE && (
+            <div className="mt-4 p-4 bg-gray-500/10 border border-gray-400/30 rounded-xl space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  代币合约地址
+                </label>
+                <input
+                  type="text"
+                  value={customTokenAddress}
+                  onChange={(e) => setCustomTokenAddress(e.target.value)}
+                  placeholder="0x..."
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-gray-400"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    代币名称
+                  </label>
+                  <input
+                    type="text"
+                    value={customTokenName}
+                    onChange={(e) => setCustomTokenName(e.target.value)}
+                    placeholder="MyToken"
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    精度 (decimals)
+                  </label>
+                  <input
+                    type="number"
+                    value={customTokenDecimals}
+                    onChange={(e) =>
+                      setCustomTokenDecimals(Number(e.target.value))
+                    }
+                    min="0"
+                    max="18"
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (customTokenAddress && customTokenName) {
+                    const customToken = {
+                      id: "custom",
+                      name: customTokenName,
+                      address: customTokenAddress,
+                      logo:
+                        "https://via.placeholder.com/32x32/4F46E5/ffffff?text=" +
+                        customTokenName.charAt(0),
+                      decimals: customTokenDecimals,
+                    };
+                    setSelectedToken(customToken);
+                    setShowCustomToken(false);
+                  } else {
+                    alert("请填写完整的代币信息");
+                  }
+                }}
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                使用此代币
+              </button>
+            </div>
+          )}
+
+          {/* 开发模式提示 */}
+          {DEVELOPMENT_MODE && (
+            <div className="mt-3 p-3 bg-orange-500/10 border border-orange-400/30 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <span className="text-orange-400">🔧</span>
+                <span className="text-sm text-orange-300">
+                  开发模式：支持测试代币。生产环境请将 DEVELOPMENT_MODE 设为
+                  false
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <label className="block text-sm font-medium text-gray-300 mb-3">
+            质押数量 ({selectedToken.name})
           </label>
           <div className="relative">
             <input
@@ -132,11 +286,6 @@ function Stake() {
               placeholder="0.0"
               className="w-full px-4 py-4 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-white placeholder-gray-400 backdrop-blur-sm"
             />
-            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-              <button className="text-blue-400 hover:text-blue-300 text-sm font-medium">
-                MAX
-              </button>
-            </div>
           </div>
         </div>
 
@@ -148,7 +297,7 @@ function Stake() {
               {stakeAmount
                 ? (parseFloat(stakeAmount) * 0.045).toFixed(4)
                 : "0.0000"}{" "}
-              ETH
+              {selectedToken.name}
             </span>
           </div>
           <div className="flex justify-between items-center text-sm">
@@ -157,7 +306,7 @@ function Stake() {
               {stakeAmount
                 ? ((parseFloat(stakeAmount) * 0.045) / 365).toFixed(6)
                 : "0.000000"}{" "}
-              ETH
+              {selectedToken.name}
             </span>
           </div>
         </div>
