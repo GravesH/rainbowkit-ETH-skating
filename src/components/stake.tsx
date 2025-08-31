@@ -5,14 +5,9 @@ import StakingTokenAbi from "../abi/StakingToken.json";
 import { injected } from "wagmi/connectors";
 import { formatUnits, parseUnits } from "viem";
 import { ethers } from "ethers";
-import {
-  useWriteContract,
-  useReadContract,
-  useConnect,
-  useWaitForTransactionReceipt,
-  useAccount,
-} from "wagmi";
-const contractAddress = "0xeee6b302D3F831DAA541e61ba1fDd87146fAbae1";
+import { useWriteContract, useReadContract, useConnect, useWaitForTransactionReceipt, useAccount } from "wagmi";
+import { waitForTransactionReceipt } from "viem/actions";
+const contractAddress = "0x121b0C7214236f430A4C5B103416c7b2D0b48287";
 
 // 开发模式：是否允许自定义代币
 const DEVELOPMENT_MODE = true; // 生产环境设为 false
@@ -37,32 +32,72 @@ const MAINSTREAM_TOKENS = [
 const TEST_TOKENS = [
   {
     id: "mytoken",
-    name: "MyToken",
-    address: "0x2422E7681efc92F23e56D0d465ef6e86D3D0210D", // 替换为你的代币地址
-    logo: "https://via.placeholder.com/32x32/4F46E5/ffffff?text=MT",
+    name: "STKM",
+    address: "0xa3CFf23B12e561AD4284422feb238d375862303C", // 替换为你的代币地址
     decimals: 18,
   },
 ];
 
 // 根据模式选择支持的代币
-const SUPPORTED_TOKENS = DEVELOPMENT_MODE
-  ? [...MAINSTREAM_TOKENS, ...TEST_TOKENS]
-  : MAINSTREAM_TOKENS;
+const SUPPORTED_TOKENS = DEVELOPMENT_MODE ? [...MAINSTREAM_TOKENS, ...TEST_TOKENS] : MAINSTREAM_TOKENS;
 function Stake() {
   const [stakeAmount, setStakeAmount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [hash, setHash] = useState<any>(undefined);
+  const [hash, setHash] = useState<`0x${string}` | undefined>(undefined);
   const res = useWaitForTransactionReceipt({ hash: hash });
-  const { writeContract } = useWriteContract();
-  const { address, isConnected } = useAccount();
+
+  const { writeContract, data: writeData, isPending } = useWriteContract();
+  const { address, isConnected, isDisconnected } = useAccount();
   const { connect } = useConnect();
+  //从智能合约中读取总的质押数量
+  const { data: totalStaked } = useReadContract({
+    address: contractAddress,
+    abi: StakingAbi,
+    functionName: "totalStaked",
+    query: {
+      enabled: !!address, // 只有当用户连接钱包时才调用
+    },
+  });
+  //从智能合约中读取当前用户待领取的奖励
+  const { data: pendingReward } = useReadContract({
+    address: contractAddress,
+    abi: StakingAbi,
+    functionName: "pendingReward",
+    query: {
+      enabled: !!address, // 只有当用户连接钱包时才调用
+    },
+  });
+
   //选择代币
   const [selectedToken, setSelectedToken] = useState(SUPPORTED_TOKENS[0]);
+
+  // 读取用户质押信息
+  const { data: userInfo } = useReadContract({
+    address: contractAddress,
+    abi: StakingAbi,
+    functionName: "userInfo",
+    query: {
+      enabled: !!address, // 只有当用户连接钱包时才调用
+    },
+  }) as { data: { amount: bigint; rewardDebt: bigint } };
+
   // 自定义代币相关状态
   const [showCustomToken, setShowCustomToken] = useState(false);
   const [customTokenAddress, setCustomTokenAddress] = useState("");
   const [customTokenName, setCustomTokenName] = useState("");
   const [customTokenDecimals, setCustomTokenDecimals] = useState(18);
+
+  //先检查  是否有  授权的额度(质押代币允许  质押合约接收多少代币，需要被质押代币本身允许)
+  const { data: allowance } = useReadContract({
+    address: selectedToken.address as `0x${string}`,
+    abi: StakingTokenAbi,
+    functionName: "allowance",
+    args: [address, contractAddress], //[用户地址, 质押合约地址]
+    query: {
+      enabled: !!address && !!selectedToken.address, // 只有当用户连接钱包且选择了代币时才调用
+    },
+  });
+
   useEffect(() => {
     console.log(res);
     if (res.isSuccess) {
@@ -70,9 +105,59 @@ function Stake() {
     }
   }, [res]);
 
+  useEffect(() => {
+    if (writeData) {
+      setHash(writeData);
+    }
+  }, [writeData]);
+
+  useEffect(() => {
+    if (isDisconnected) {
+      console.log("isDisconnected", isDisconnected);
+      // 手动清理 pending 状态
+      setIsLoading(false);
+    }
+  }, [isDisconnected]);
+
+  useEffect(() => {
+    setIsLoading(isPending);
+  }, [isPending]);
+
+  // 监听 allowance 变化
+  useEffect(() => {
+    console.log("=== Allowance 调试信息 ===");
+    console.log("address:", address);
+    console.log("selectedToken.address:", selectedToken.address);
+    console.log("contractAddress:", contractAddress);
+    console.log("allowance:", allowance);
+    console.log("allowance type:", typeof allowance);
+    console.log("========================");
+  }, [allowance, address, selectedToken.address]);
+
   const handleConnectWallet = () => {
     connect({ connector: injected() });
   };
+
+  const handleApprove = async () => {
+    console.log("当前授权额度:", allowance);
+    const amountInWei = parseUnits(stakeAmount, selectedToken.decimals);
+    console.log("需要授权金额:", amountInWei);
+
+    if (!allowance || (allowance as bigint) < amountInWei) {
+      //如果没有授权或授权额度不足，则需要授权
+      console.log("需要授权，发送授权请求...");
+      writeContract({
+        address: selectedToken.address as `0x${string}`,
+        abi: StakingTokenAbi,
+        functionName: "approve",
+        args: [contractAddress, amountInWei],
+      });
+      console.log("授权请求已发送");
+    } else {
+      console.log("授权额度足够，无需重新授权");
+    }
+  };
+
   const handleStake = async () => {
     //质押前  肯定要先判断是否链接到了钱包
     if (!isConnected) {
@@ -81,32 +166,26 @@ function Stake() {
       return;
     }
     //链接后  需要进行金额的校验
-    if (
-      isNaN(Number(stakeAmount)) ||
-      Number(stakeAmount) <= 0 ||
-      !stakeAmount
-    ) {
+    if (isNaN(Number(stakeAmount)) || Number(stakeAmount) <= 0 || !stakeAmount) {
       alert("请输入有效的质押数量");
       return;
     }
-    setIsLoading(true);
+    console.log("质押金额:", stakeAmount);
+    //金额精度处理
+    const amountInWei = parseUnits(stakeAmount, selectedToken.decimals);
+    console.log("质押金额（wei）:", amountInWei);
 
-    try {
-      //金额精度处理
-      const amountInWei = parseUnits(stakeAmount, selectedToken.decimals);
-      console.log("质押金额（wei）:", amountInWei);
+    await handleApprove();
 
-      const tsHash = await writeContract({
+    // 等待一下让授权交易完成，然后执行质押
+    setTimeout(() => {
+      writeContract({
         address: contractAddress,
         abi: StakingAbi,
         functionName: "stake",
         args: [amountInWei],
       });
-      setHash(tsHash);
-    } catch (e) {
-      console.error("发送交易失败:", e);
-      setIsLoading(false);
-    }
+    }, 2000);
   };
 
   return (
@@ -120,9 +199,7 @@ function Stake() {
           <div className="absolute -top-2 -left-2 w-6 h-6 bg-blue-500 rounded-full animate-pulse"></div>
           <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-purple-500 rounded-full animate-ping"></div>
         </div>
-        <p className="text-gray-300 text-lg">
-          将您的代币质押到去中心化网络中获得收益
-        </p>
+        <p className="text-gray-300 text-lg">将您的代币质押到去中心化网络中获得收益</p>
       </div>
 
       {/* 统计卡片 */}
@@ -145,9 +222,7 @@ function Stake() {
       <div className="space-y-6">
         {/* 代币选择器 */}
         <div className="relative">
-          <label className="block text-sm font-medium text-gray-300 mb-3">
-            选择质押代币
-          </label>
+          <label className="block text-sm font-medium text-gray-300 mb-3">选择质押代币</label>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {SUPPORTED_TOKENS.map((token) => (
               <div
@@ -162,9 +237,7 @@ function Stake() {
                 <div className="flex items-center space-x-3">
                   <div>
                     <div className="font-semibold text-white">{token.name}</div>
-                    <div className="text-xs text-gray-400">
-                      {token.decimals} decimals
-                    </div>
+                    <div className="text-xs text-gray-400">{token.decimals} decimals</div>
                   </div>
                 </div>
               </div>
@@ -182,9 +255,7 @@ function Stake() {
                   </div>
                   <div>
                     <div className="font-semibold text-white">自定义代币</div>
-                    <div className="text-xs text-gray-400">
-                      输入代币合约地址
-                    </div>
+                    <div className="text-xs text-gray-400">输入代币合约地址</div>
                   </div>
                 </div>
               </div>
@@ -195,9 +266,7 @@ function Stake() {
           {showCustomToken && DEVELOPMENT_MODE && (
             <div className="mt-4 p-4 bg-gray-500/10 border border-gray-400/30 rounded-xl space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  代币合约地址
-                </label>
+                <label className="block text-sm font-medium text-gray-300 mb-2">代币合约地址</label>
                 <input
                   type="text"
                   value={customTokenAddress}
@@ -208,9 +277,7 @@ function Stake() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    代币名称
-                  </label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">代币名称</label>
                   <input
                     type="text"
                     value={customTokenName}
@@ -220,15 +287,11 @@ function Stake() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    精度 (decimals)
-                  </label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">精度 (decimals)</label>
                   <input
                     type="number"
                     value={customTokenDecimals}
-                    onChange={(e) =>
-                      setCustomTokenDecimals(Number(e.target.value))
-                    }
+                    onChange={(e) => setCustomTokenDecimals(Number(e.target.value))}
                     min="0"
                     max="18"
                     className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white"
@@ -242,9 +305,7 @@ function Stake() {
                       id: "custom",
                       name: customTokenName,
                       address: customTokenAddress,
-                      logo:
-                        "https://via.placeholder.com/32x32/4F46E5/ffffff?text=" +
-                        customTokenName.charAt(0),
+                      logo: "https://via.placeholder.com/32x32/4F46E5/ffffff?text=" + customTokenName.charAt(0),
                       decimals: customTokenDecimals,
                     };
                     setSelectedToken(customToken);
@@ -265,19 +326,14 @@ function Stake() {
             <div className="mt-3 p-3 bg-orange-500/10 border border-orange-400/30 rounded-lg">
               <div className="flex items-center space-x-2">
                 <span className="text-orange-400">🔧</span>
-                <span className="text-sm text-orange-300">
-                  开发模式：支持测试代币。生产环境请将 DEVELOPMENT_MODE 设为
-                  false
-                </span>
+                <span className="text-sm text-orange-300">开发模式：支持测试代币。生产环境请将 DEVELOPMENT_MODE 设为 false</span>
               </div>
             </div>
           )}
         </div>
 
         <div className="relative">
-          <label className="block text-sm font-medium text-gray-300 mb-3">
-            质押数量 ({selectedToken.name})
-          </label>
+          <label className="block text-sm font-medium text-gray-300 mb-3">质押数量 ({selectedToken.name})</label>
           <div className="relative">
             <input
               type="number"
@@ -289,24 +345,24 @@ function Stake() {
           </div>
         </div>
 
-        {/* 收益预估 */}
+        {/* 收益信息 - 显示合约真实数据 */}
         <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-sm border border-green-400/30 rounded-xl p-4">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-gray-300">预计年收益</span>
+            <span className="text-gray-300">待领取奖励</span>
             <span className="font-semibold text-green-400">
-              {stakeAmount
-                ? (parseFloat(stakeAmount) * 0.045).toFixed(4)
-                : "0.0000"}{" "}
-              {selectedToken.name}
+              {pendingReward ? formatUnits(pendingReward as bigint, 18) : "0.0000"} {selectedToken.name}
             </span>
           </div>
           <div className="flex justify-between items-center text-sm">
-            <span className="text-gray-400">日收益</span>
+            <span className="text-gray-400">已质押数量</span>
             <span className="text-green-300">
-              {stakeAmount
-                ? ((parseFloat(stakeAmount) * 0.045) / 365).toFixed(6)
-                : "0.000000"}{" "}
-              {selectedToken.name}
+              {userInfo?.amount ? formatUnits(userInfo.amount as bigint, 18) : "0.000000"} {selectedToken.name}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-gray-400">总质押量</span>
+            <span className="text-green-300">
+              {totalStaked ? formatUnits(totalStaked as bigint, 18) : "0.000000"} {selectedToken.name}
             </span>
           </div>
         </div>
@@ -337,9 +393,7 @@ function Stake() {
           <div className="text-yellow-400 text-lg">⚠️</div>
           <div className="text-sm text-gray-300">
             <div className="font-medium text-yellow-400 mb-1">风险提示</div>
-            <div>
-              质押存在市场风险，请谨慎投资。质押期间资金将被锁定，无法随时提取。
-            </div>
+            <div>质押存在市场风险，请谨慎投资。质押期间资金将被锁定，无法随时提取。</div>
           </div>
         </div>
       </div>
